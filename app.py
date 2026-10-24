@@ -246,7 +246,10 @@ if st.button("✨ 执行透视矫正与增强", type="primary"):
     else:
         try:
             with st.spinner("正在矫正与增强…"):
-                st.session_state.warped = scanner.four_point_transform(img, corners)
+                # 自动检测的角点需要排序；手动选点信任用户的点击顺序
+                st.session_state.warped = scanner.four_point_transform(
+                    img, corners, reorder=(corner_source == "自动检测")
+                )
         except scanner.ScanError as exc:
             st.session_state.warped = None
             st.error(f"透视矫正失败：{exc}")

@@ -70,32 +70,42 @@ def resize_to_max(img: np.ndarray, max_dim: int = MAX_IMAGE_DIM) -> tuple[np.nda
 # ---------------------------------------------------------------------------
 
 def order_points(pts: np.ndarray) -> np.ndarray:
-    """将四个点排序为：左上、右上、右下、左下。"""
+    """将四个点排序为：左上、右上、右下、左下。
+
+    先按相对质心的极角做循环排序（对任意凸四边形稳定，
+    包括旋转约 45° 的菱形构图），再以 x+y 最小者作为左上起点。
+    """
     pts = np.asarray(pts, dtype=np.float32).reshape(4, 2)
-    s = pts.sum(axis=1)
-    d = np.diff(pts, axis=1).ravel()
-    ordered = np.array(
-        [
-            pts[np.argmin(s)],  # 左上：x+y 最小
-            pts[np.argmin(d)],  # 右上：y-x 最小
-            pts[np.argmax(s)],  # 右下：x+y 最大
-            pts[np.argmax(d)],  # 左下：y-x 最大
-        ],
-        dtype=np.float32,
-    )
-    return ordered
+    centroid = pts.mean(axis=0)
+    angles = np.arctan2(pts[:, 1] - centroid[1], pts[:, 0] - centroid[0])
+    cyclic = pts[np.argsort(angles)]  # 图像坐标 y 向下 → 屏幕上为顺时针
+    start = int(np.argmin(cyclic.sum(axis=1)))  # 左上：x+y 最小
+    return np.roll(cyclic, -start, axis=0).astype(np.float32)
 
 
-def validate_corners(pts: np.ndarray, min_dist: float = 5.0) -> np.ndarray:
-    """校验四点：必须是 4 个点、无重复点、能构成非退化四边形。"""
-    rect = order_points(pts)
+def validate_corners(
+    pts: np.ndarray,
+    min_dist: float = 5.0,
+    reorder: bool = True,
+) -> np.ndarray:
+    """校验四点：必须是 4 个点、无重复点、能构成非退化四边形。
+
+    reorder=True 时按左上→右上→右下→左下重排（用于自动检测）；
+    reorder=False 时信任调用方给定的顺序（用于手动选点），
+    但要求四点必须按顺序构成凸四边形，否则判定为点序错误。
+    """
+    arr = np.asarray(pts, dtype=np.float32).reshape(4, 2)
+    rect = order_points(arr) if reorder else arr
     for i in range(4):
         for j in range(i + 1, 4):
             if np.linalg.norm(rect[i] - rect[j]) < min_dist:
                 raise ScanError("四个角点中存在距离过近或重复的点，请重新选择。")
-    area = abs(cv2.contourArea(rect.reshape(4, 1, 2)))
+    contour = rect.reshape(4, 1, 2)
+    area = abs(cv2.contourArea(contour))
     if area < 100:
         raise ScanError("四个角点构成的四边形面积过小，无法矫正。")
+    if not reorder and not cv2.isContourConvex(contour):
+        raise ScanError("四点连线出现交叉，请按左上 → 右上 → 右下 → 左下的顺序选择角点。")
     return rect
 
 
@@ -204,11 +214,15 @@ def four_point_transform(
     img: np.ndarray,
     pts: np.ndarray,
     max_dim: int = MAX_OUTPUT_DIM,
+    reorder: bool = True,
 ) -> np.ndarray:
-    """根据四个角点执行透视矫正，输出正视文档图像。"""
+    """根据四个角点执行透视矫正，输出正视文档图像。
+
+    reorder=True 时自动排序角点；reorder=False 时信任给定顺序（手动选点）。
+    """
     if img is None or img.size == 0:
         raise ScanError("输入图像为空，无法执行透视矫正。")
-    rect = validate_corners(pts)
+    rect = validate_corners(pts, reorder=reorder)
     tl, tr, br, bl = rect
 
     width_a = np.linalg.norm(br - bl)
@@ -307,11 +321,15 @@ def encode_png(img: np.ndarray) -> bytes:
 
 
 def draw_corners(img: np.ndarray, corners: np.ndarray, color=(0, 0, 255)) -> np.ndarray:
-    """在图像上绘制四边形与角点，用于预览（返回 RGB 图）。"""
+    """在图像上绘制四边形与角点，用于预览（返回 RGB 图）。
+
+    按给定顺序连线，不做重排：自动检测传入的已是排序结果，
+    手动选点则应忠实呈现用户的点击顺序。
+    """
     vis = img.copy()
     if vis.ndim == 2:
         vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
-    rect = order_points(corners).astype(int)
+    rect = np.asarray(corners, dtype=np.float32).reshape(4, 2).astype(int)
     cv2.polylines(vis, [rect.reshape(4, 1, 2)], True, color, 3)
     labels = ["左上", "右上", "右下", "左下"]
     for i, (x, y) in enumerate(rect):
@@ -330,8 +348,8 @@ def draw_points(img: np.ndarray, points) -> np.ndarray:
         vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
     pts = np.asarray(points, dtype=np.float32).reshape(-1, 2)
     if len(pts) == 4:
-        rect = order_points(pts).astype(int)
-        cv2.polylines(vis, [rect.reshape(4, 1, 2)], True, (0, 0, 255), 3)
+        # 按给定顺序连线，忠实呈现用户选择
+        cv2.polylines(vis, [pts.astype(int).reshape(4, 1, 2)], True, (0, 0, 255), 3)
     for i, (x, y) in enumerate(pts):
         cv2.circle(vis, (int(x), int(y)), 10, (0, 255, 0), -1)
         cv2.putText(

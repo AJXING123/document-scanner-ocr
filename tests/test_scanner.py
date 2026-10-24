@@ -111,6 +111,40 @@ def test_order_points():
         assert np.min(np.linalg.norm(ordered - p, axis=1)) < 1e-3
 
 
+def test_order_points_diamond():
+    """菱形构图（文档旋转约 45°）：排序必须保持循环邻接，不丢点、不重复。
+
+    回归测试：旧的 x+y / y−x 极值法会把最左侧点同时判为左上和左下，
+    导致绘制退化为三角形。
+    """
+    diamond = np.array(
+        [[490, 55], [865, 285], [480, 870], [20, 465]],  # 上、右、下、左
+        np.float32,
+    )
+    ordered = scanner.order_points(diamond[[3, 1, 0, 2]])  # 打乱输入
+    # 四个点必须各出现一次
+    for p in diamond:
+        assert np.min(np.linalg.norm(ordered - p, axis=1)) < 1e-3
+    # 邻接关系保持：上-右-下-左 的循环顺序不被打乱
+    idx = {i: int(np.argmin(np.linalg.norm(ordered - diamond[i], axis=1))) for i in range(4)}
+    for a, b in [(0, 1), (1, 2), (2, 3), (3, 0)]:
+        assert (idx[b] - idx[a]) % 4 == 1
+
+
+def test_validate_manual_order_preserved():
+    """手动选点（reorder=False）必须保留用户给定的顺序。"""
+    pts = np.array([[490, 55], [865, 285], [480, 870], [20, 465]], np.float32)
+    rect = scanner.validate_corners(pts, reorder=False)
+    assert np.allclose(rect, pts)
+
+
+def test_validate_crossed_quad_raises():
+    """手动选点顺序交叉（蝴蝶形）应给出明确错误提示。"""
+    crossed = np.array([[100, 100], [90, 400], [400, 120], [380, 410]], np.float32)
+    with pytest.raises(scanner.ScanError):
+        scanner.validate_corners(crossed, reorder=False)
+
+
 def test_validate_duplicate_points_raises():
     pts = np.array([[10, 10], [10, 10], [300, 300], [50, 300]], np.float32)
     with pytest.raises(scanner.ScanError):
