@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 测试与缓存
+.pytest_cache/
+.cache/
+
+# 临时图片与输出（保留 output/.gitkeep）
+output/*
+!output/.gitkeep
+tmp/
+*.tmp
+
+# 个人文件
+samples/*.jpg
+samples/*.jpeg
+samples/*.png
+!samples/README.md
+!samples/sample_document.png
+
+# IDE
+.idea/
+.vscode/

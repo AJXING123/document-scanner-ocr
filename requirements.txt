@@ -1,0 +1,9 @@
+# 运行依赖（Python 3.10+，以下版本已在 Ubuntu 22.04 / Python 3.10 实测通过）
+opencv-python==5.0.0.93
+numpy==2.2.6
+streamlit==1.65.0
+pillow==12.3.0
+streamlit-image-coordinates==0.4.1
+
+# 测试依赖
+pytest==9.1.1
